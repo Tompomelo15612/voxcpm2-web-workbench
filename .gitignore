@@ -1,0 +1,32 @@
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# Editor and operating system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Downloaded model weights
+models/
+
+# Uploaded references and generated audio
+references/
+outputs/
+*.wav
+*.mp3
+*.flac
+*.m4a
+*.ogg
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp

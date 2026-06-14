@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VoxCPM2 语音生成工作台</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand-lockup">
+        <div class="brand-mark" aria-hidden="true">V2</div>
+        <div>
+          <h1>VoxCPM2 语音生成工作台</h1>
+          <p>本地运行 · 单任务生成 · 结果自动保存</p>
+        </div>
+      </div>
+      <form action="{{ url_for('refresh') }}" method="post">
+        <button class="secondary-button" type="submit">刷新历史</button>
+      </form>
+    </header>
+
+    {% if error %}
+      <section class="notice error" role="alert">{{ error }}</section>
+    {% endif %}
+
+    <section id="progressPanel" class="progress-panel" hidden aria-live="polite">
+      <div class="progress-head">
+        <div>
+          <strong id="progressTitle">正在生成语音</strong>
+          <p id="progressMessage">准备提交任务</p>
+        </div>
+        <span id="progressPercent">0%</span>
+      </div>
+      <div class="progress-bar" aria-label="生成进度"><div id="progressFill"></div></div>
+    </section>
+
+    <section class="workspace">
+      <form id="generateForm" class="panel composer" action="{{ url_for('generate') }}" method="post" enctype="multipart/form-data">
+        <section class="editor-section">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">01 · 文本</span>
+              <h2>写下要生成的内容</h2>
+            </div>
+            <span id="charCount" class="quiet-badge">0 字</span>
+          </div>
+          <textarea id="text" name="text" rows="12" required placeholder="输入台词、旁白或对白">{{ form.get('text', '') }}</textarea>
+          <div class="editor-tools">
+            <div class="tag-row" aria-label="插入情绪标签">
+              {% for tag, label in [('[laughing]', '笑'),('[sigh]', '叹气'),('[Uhm]', '迟疑'),('[Shh]', '嘘声'),('[Surprise-wa]', '惊讶'),('[Dissatisfaction-hnn]', '不满'),('[Question-ah]', '疑问')] %}
+                <button class="tag-button" type="button" data-insert="{{ tag }}">{{ label }}</button>
+              {% endfor %}
+            </div>
+            <details class="template-menu">
+              <summary>插入短剧模板</summary>
+              <div class="template-grid">
+                {% for text, label in [
+                  ('[laughing] 你不会真的以为，我还会相信你吧？', '冷笑讽刺'),
+                  ('[Dissatisfaction-hnn] 你凭什么，替我做决定？', '压怒质问'),
+                  ('[sigh] 原来从一开始，你就没有信过我。', '失望叹息'),
+                  ('[Surprise-wa] 什么？你说她还活着？', '震惊反转'),
+                  ('[Uhm] 我……我只是，想听你说一句真话。', '迟疑崩溃'),
+                  ('[Shh] 小声点，别让他们听见。', '低声警告')
+                ] %}
+                  <button class="template-button" type="button" data-insert="{{ text }}">{{ label }}</button>
+                {% endfor %}
+              </div>
+            </details>
+          </div>
+        </section>
+
+        <section class="setup-section">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">02 · 声音</span>
+              <h2>选择生成方式</h2>
+            </div>
+          </div>
+
+          <div class="mode-picker" role="radiogroup" aria-label="生成模式">
+            {% set mode = form.get('mode', 'clone') %}
+            {% for value, title, description in [
+              ('clone', '基础克隆', '使用参考声音快速生成'),
+              ('ultimate', '极致克隆', '参考声音与原文共同锁定音色'),
+              ('voice_design', '声音设计', '不使用参考音频，自由设计声音')
+            ] %}
+              <label class="mode-option">
+                <input type="radio" name="mode" value="{{ value }}" {% if mode == value %}checked{% endif %}>
+                <span><strong>{{ title }}</strong><small>{{ description }}</small></span>
+              </label>
+            {% endfor %}
+          </div>
+
+          <div class="grid three">
+            <div class="field">
+              <label for="language_key">语言 / 方言</label>
+              <select id="language_key" name="language_key">
+                {% set language_key = form.get('language_key', 'auto') %}
+                {% for group_label, options in language_groups %}
+                  <optgroup label="{{ group_label }}">
+                    {% for value, label, placeholder in options %}
+                      <option value="{{ value }}" data-placeholder="{{ placeholder }}" {% if language_key == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                  </optgroup>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label for="tone_key">语气模板</label>
+              <select id="tone_key" name="tone_key">
+                {% set tone_key = form.get('tone_key', 'natural') %}
+                {% for tone in tone_presets %}
+                  <option value="{{ tone.key }}" {% if tone_key == tone.key %}selected{% endif %}>{{ tone.label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label for="speed">语速</label>
+              <select id="speed" name="speed">
+                {% set speed = form.get('speed', '1.0') %}
+                {% for value, label in [('0.75','0.75 · 慢速'),('0.85','0.85 · 较慢'),('0.90','0.90 · 稍慢'),('1.0','1.00 · 原速'),('1.10','1.10 · 稍快'),('1.20','1.20 · 较快')] %}
+                  <option value="{{ value }}" {% if speed == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <div id="referenceFields" class="reference-card">
+            <div class="field">
+              <label for="reference_key">参考声音</label>
+              <select id="reference_key" name="reference_key">
+                <option value="">选择一个参考声音</option>
+                {% for ref in references %}
+                  <option value="{{ ref.key }}" data-duration="{{ ref.duration or '' }}" {% if form.get('reference_key') == ref.key %}selected{% endif %}>
+                    {{ ref.name }}{% if ref.duration %} · {{ "%.1f"|format(ref.duration) }} 秒{% endif %}
+                  </option>
+                {% endfor %}
+              </select>
+              <p id="referenceHint" class="field-help">建议使用 3–10 秒、单人干声、首尾静音较少的音频。</p>
+            </div>
+            <details class="upload-details">
+              <summary>上传新的参考声音</summary>
+              <div class="upload-panel">
+                <div class="upload-row">
+                  <input id="reference_upload" name="reference_upload" type="file" accept=".wav,.mp3,.flac,.m4a,.ogg,audio/*">
+                  <button id="uploadReferenceButton" class="upload-button" type="button" disabled>上传并选中</button>
+                </div>
+                <p id="uploadReferenceStatus" class="field-help" aria-live="polite">选择音频后点击上传，成功后会自动加入并选中上方列表。</p>
+              </div>
+            </details>
+          </div>
+
+          <div id="ultimateFields" class="field conditional-field">
+            <label for="prompt_text">参考音频对应文本 <span class="required-label">极致克隆必填</span></label>
+            <textarea id="prompt_text" class="compact-textarea" name="prompt_text" rows="3" placeholder="准确填写参考音频里实际说的话">{{ form.get('prompt_text', '') }}</textarea>
+          </div>
+
+          <div id="voiceDesignFields" class="field conditional-field">
+            <label id="controlInstructionLabel" for="control_instruction">声音设计描述</label>
+            <input id="control_instruction" name="control_instruction" type="text" value="{{ form.get('control_instruction', '') }}" placeholder="例如：成熟温柔的女性，声音清晰，语速自然">
+            <input id="enableControl" type="hidden" name="enable_control" value="">
+          </div>
+        </section>
+
+        <details class="advanced-panel">
+          <summary>
+            <span><strong>高级设置</strong><small>质量参数、长文本与异常处理</small></span>
+            <span class="summary-action">展开</span>
+          </summary>
+          <div class="advanced-content">
+            <div class="grid four">
+              <div class="field">
+                <label for="cfg_value">CFG <span class="help-mark" title="引导强度，推荐保持 2.0">?</span></label>
+                <input id="cfg_value" name="cfg_value" type="number" min="0" max="10" step="0.1" value="{{ form.get('cfg_value', '2.0') }}">
+              </div>
+              <div class="field">
+                <label for="inference_timesteps">推理步数 <span class="help-mark" title="越高通常越慢，推荐 10">?</span></label>
+                <input id="inference_timesteps" name="inference_timesteps" type="number" min="1" max="100" step="1" value="{{ form.get('inference_timesteps', '10') }}">
+              </div>
+              <div class="field">
+                <label for="max_segment_chars">每段最大字数</label>
+                <input id="max_segment_chars" name="max_segment_chars" type="number" min="80" max="1200" step="20" value="{{ form.get('max_segment_chars', '180') }}">
+              </div>
+              <div class="field">
+                <label for="output_name">输出名称</label>
+                <input id="output_name" name="output_name" type="text" value="{{ form.get('output_name', 'tts_output') }}">
+              </div>
+            </div>
+            <div class="switch-grid">
+              {% for name, title, description, default_on in [
+                ('normalize', '文本规范化', '展开数字、日期和金额', false),
+                ('denoise', '参考音频降噪', '参考音频有底噪时使用', false),
+                ('retry_badcase', '异常自动重试', '异常长度时自动重试，可能增加等待时间', true),
+                ('auto_split', '长文本自动分段', '按句拆分后生成并拼接', false)
+              ] %}
+                <label class="switch">
+                  <input type="checkbox" name="{{ name }}" {% if form.get(name) == 'on' or (default_on and not form) %}checked{% endif %}>
+                  <span><strong>{{ title }}</strong><small>{{ description }}</small></span>
+                </label>
+              {% endfor %}
+            </div>
+          </div>
+        </details>
+
+        <div class="generate-dock">
+          <div class="generation-summary">
+            <strong id="summaryMode">基础克隆</strong>
+            <span id="summaryReference">尚未选择参考声音</span>
+          </div>
+          <button id="generateButton" class="primary" type="submit">生成语音</button>
+        </div>
+      </form>
+
+      <aside class="side-column">
+        <section id="latestResult" class="panel result-panel" aria-live="polite">
+          <div class="section-head">
+            <div><span class="eyebrow">最新结果</span><h2>生成后在这里试听</h2></div>
+          </div>
+          <div id="asyncResult" class="result-content" hidden></div>
+          {% if result %}
+            <div class="result-content">
+              <strong>{{ result.filename }}</strong>
+              <audio controls src="{{ url_for('audio', key='outputs:' + result.filename) }}"></audio>
+              <a class="button-link" href="{{ url_for('download', key='outputs:' + result.filename) }}">下载音频</a>
+            </div>
+          {% else %}
+            <div id="resultEmpty" class="empty-result"><strong>还没有新结果</strong><p>填写文本并生成后，可在这里立即试听与下载。</p></div>
+          {% endif %}
+        </section>
+
+        <section class="panel history">
+          <div class="section-head">
+            <div><span class="eyebrow">历史</span><h2>最近生成</h2></div>
+            <span>{{ history|length }} 条</span>
+          </div>
+          <label class="search-field">
+            <span class="sr-only">搜索历史音频</span>
+            <input id="historySearch" type="search" placeholder="搜索文件名">
+          </label>
+          {% if history %}
+            <div id="historyList" class="history-list">
+              {% for item in history[:20] %}
+                <article class="audio-row" data-name="{{ item.name|lower }}">
+                  <div class="audio-meta">
+                    <strong>{{ item.name }}</strong>
+                    <span>{{ item.modified.strftime('%m-%d %H:%M') }} · {% if item.duration %}{{ "%.1f"|format(item.duration) }} 秒 · {% endif %}{{ "%.2f"|format(item.size_mb) }} MB</span>
+                  </div>
+                  <audio controls preload="none" src="{{ url_for('audio', key=item.key) }}"></audio>
+                  <a href="{{ url_for('download', key=item.key) }}">下载</a>
+                </article>
+              {% endfor %}
+            </div>
+            {% if history|length > 20 %}<p class="history-limit">仅展示最近 20 条，可通过搜索过滤当前列表。</p>{% endif %}
+          {% else %}
+            <p class="empty">还没有生成记录。</p>
+          {% endif %}
+        </section>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const textInput = document.getElementById("text");
+    const generateForm = document.getElementById("generateForm");
+    const generateButton = document.getElementById("generateButton");
+    const progressPanel = document.getElementById("progressPanel");
+    const progressTitle = document.getElementById("progressTitle");
+    const progressPercent = document.getElementById("progressPercent");
+    const progressFill = document.getElementById("progressFill");
+    const progressMessage = document.getElementById("progressMessage");
+    const asyncResult = document.getElementById("asyncResult");
+    const referenceSelect = document.getElementById("reference_key");
+    const referenceUpload = document.getElementById("reference_upload");
+    const uploadReferenceButton = document.getElementById("uploadReferenceButton");
+    const uploadReferenceStatus = document.getElementById("uploadReferenceStatus");
+    const promptText = document.getElementById("prompt_text");
+
+    function setProgress(percent, message) {
+      const value = Math.max(0, Math.min(100, Number(percent) || 0));
+      progressPercent.textContent = `${value}%`;
+      progressFill.style.width = `${value}%`;
+      progressMessage.textContent = message || "处理中";
+    }
+
+    function showAsyncResult(result) {
+      document.getElementById("resultEmpty")?.remove();
+      asyncResult.innerHTML = `
+        <div class="result-meta">
+          <strong>${result.filename}</strong>
+          <span>${Number(result.duration || 0).toFixed(1)} 秒 · ${result.sample_rate} Hz · ${result.tone_label}</span>
+        </div>
+        <audio controls autoplay src="${result.audio_url}"></audio>
+        <a class="button-link" href="${result.download_url}">下载音频</a>
+      `;
+      asyncResult.hidden = false;
+    }
+
+    async function pollProgress(jobId) {
+      const response = await fetch(`/progress/${jobId}`);
+      if (!response.ok) throw new Error("无法读取生成进度");
+      const job = await response.json();
+      setProgress(job.percent || 0, job.message || "");
+      if (job.status === "done") {
+        progressTitle.textContent = "生成完成";
+        showAsyncResult(job.result);
+        generateButton.disabled = false;
+        generateButton.textContent = "再次生成";
+        return;
+      }
+      if (job.status === "error") {
+        throw new Error(job.message || "生成失败");
+      }
+      window.setTimeout(() => pollProgress(jobId).catch(showProgressError), 1200);
+    }
+
+    function showProgressError(error) {
+      progressTitle.textContent = "生成失败";
+      progressPanel.classList.add("failed");
+      setProgress(100, error.message || "生成失败，请检查参考声音和参数后重试");
+      generateButton.disabled = false;
+      generateButton.textContent = "重新生成";
+    }
+
+    generateForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      progressPanel.hidden = false;
+      progressPanel.classList.remove("failed");
+      progressTitle.textContent = "正在生成语音";
+      setProgress(1, "正在提交任务");
+      generateButton.disabled = true;
+      generateButton.textContent = "生成中…";
+      try {
+        const response = await fetch("{{ url_for('generate_async') }}", { method: "POST", body: new FormData(generateForm) });
+        const payload = await response.json();
+        if (!response.ok || payload.error) throw new Error(payload.error || "提交失败");
+        pollProgress(payload.job_id).catch(showProgressError);
+      } catch (error) {
+        showProgressError(error);
+      }
+    });
+
+    document.querySelectorAll("[data-insert]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const value = button.dataset.insert;
+        const start = textInput.selectionStart;
+        const end = textInput.selectionEnd;
+        const spacing = start > 0 ? " " : "";
+        textInput.value = textInput.value.slice(0, start) + spacing + value + textInput.value.slice(end);
+        textInput.focus();
+        textInput.setSelectionRange(start + spacing.length + value.length, start + spacing.length + value.length);
+        updateCharCount();
+      });
+    });
+
+    const modeLabels = { clone: "基础克隆", ultimate: "极致克隆", voice_design: "声音设计" };
+    function updateReferenceRequirement() {
+      const mode = generateForm.elements.mode.value;
+      referenceSelect.required = mode !== "voice_design" && referenceUpload.files.length === 0;
+    }
+
+    function setUploadState(message, state = "") {
+      uploadReferenceStatus.textContent = message;
+      uploadReferenceStatus.dataset.state = state;
+    }
+
+    async function uploadReference() {
+      const file = referenceUpload.files[0];
+      if (!file) {
+        setUploadState("请先选择参考音频文件。", "error");
+        return;
+      }
+
+      uploadReferenceButton.disabled = true;
+      uploadReferenceButton.textContent = "上传中…";
+      setUploadState(`正在上传：${file.name}`, "working");
+
+      const formData = new FormData();
+      formData.append("reference_upload", file);
+      try {
+        const response = await fetch("{{ url_for('upload_reference') }}", { method: "POST", body: formData });
+        const payload = await response.json();
+        if (!response.ok || payload.error) throw new Error(payload.error || "上传失败");
+
+        const duration = Number(payload.duration || 0);
+        const option = new Option(
+          `${payload.name}${duration ? ` · ${duration.toFixed(1)} 秒` : ""}`,
+          payload.key,
+          true,
+          true
+        );
+        option.dataset.duration = payload.duration || "";
+        referenceSelect.add(option);
+        referenceUpload.value = "";
+        setUploadState(`上传成功，已选中：${payload.name}`, "success");
+        updateReferenceRequirement();
+        updateSummaryReference();
+      } catch (error) {
+        setUploadState(error.message || "上传失败，请检查文件格式后重试。", "error");
+      } finally {
+        uploadReferenceButton.textContent = "上传并选中";
+        uploadReferenceButton.disabled = referenceUpload.files.length === 0;
+      }
+    }
+
+    function updateMode() {
+      const mode = generateForm.elements.mode.value;
+      document.getElementById("referenceFields").hidden = mode === "voice_design";
+      document.getElementById("ultimateFields").hidden = mode !== "ultimate";
+      document.getElementById("voiceDesignFields").hidden = mode === "ultimate";
+      document.getElementById("controlInstructionLabel").textContent = mode === "voice_design" ? "声音设计描述" : "可选控制提示词";
+      document.getElementById("control_instruction").placeholder = mode === "voice_design"
+        ? "例如：成熟温柔的女性，声音清晰，语速自然"
+        : "例如：slightly faster, cheerful tone";
+      promptText.required = mode === "ultimate";
+      document.getElementById("enableControl").value = mode === "ultimate" ? "" : "on";
+      document.getElementById("summaryMode").textContent = modeLabels[mode];
+      updateReferenceRequirement();
+      updateSummaryReference();
+    }
+    document.querySelectorAll('input[name="mode"]').forEach((input) => input.addEventListener("change", updateMode));
+
+    function updateSummaryReference() {
+      const mode = generateForm.elements.mode.value;
+      const selected = referenceSelect.options[referenceSelect.selectedIndex];
+      const duration = Number(selected?.dataset.duration || 0);
+      const hint = document.getElementById("referenceHint");
+      if (duration > 12) {
+        hint.textContent = `当前参考声音 ${duration.toFixed(1)} 秒，偏长，可能增加等待时间或生成异常。建议裁剪到 3–10 秒。`;
+        hint.classList.add("warning-text");
+      } else if (duration > 0 && duration < 2.5) {
+        hint.textContent = `当前参考声音仅 ${duration.toFixed(1)} 秒，音色信息可能不足。建议使用 3–10 秒清晰人声。`;
+        hint.classList.add("warning-text");
+      } else {
+        hint.textContent = "建议使用 3–10 秒、单人干声、首尾静音较少的音频。";
+        hint.classList.remove("warning-text");
+      }
+      const uploadedFile = referenceUpload.files[0];
+      document.getElementById("summaryReference").textContent = mode === "voice_design"
+        ? "使用文字描述设计声音"
+        : uploadedFile
+          ? `将上传并使用：${uploadedFile.name}`
+          : (selected?.value ? selected.textContent.trim() : "尚未选择参考声音");
+    }
+    referenceSelect.addEventListener("change", updateSummaryReference);
+    referenceUpload.addEventListener("change", () => {
+      uploadReferenceButton.disabled = referenceUpload.files.length === 0;
+      setUploadState(
+        referenceUpload.files[0] ? `已选择：${referenceUpload.files[0].name}` : "选择音频后点击上传，成功后会自动加入并选中上方列表。"
+      );
+      updateReferenceRequirement();
+      updateSummaryReference();
+    });
+    uploadReferenceButton.addEventListener("click", uploadReference);
+
+    function updateCharCount() {
+      document.getElementById("charCount").textContent = `${textInput.value.length} 字`;
+    }
+    textInput.addEventListener("input", updateCharCount);
+
+    const languageSelect = document.getElementById("language_key");
+    function updateLanguagePlaceholder() {
+      const selected = languageSelect.options[languageSelect.selectedIndex];
+      if (selected?.dataset.placeholder) textInput.placeholder = selected.dataset.placeholder;
+    }
+    languageSelect.addEventListener("change", updateLanguagePlaceholder);
+
+    document.getElementById("historySearch")?.addEventListener("input", (event) => {
+      const query = event.target.value.trim().toLowerCase();
+      document.querySelectorAll(".audio-row").forEach((row) => {
+        row.hidden = !row.dataset.name.includes(query);
+      });
+    });
+
+    updateMode();
+    updateCharCount();
+    updateLanguagePlaceholder();
+  </script>
+</body>
+</html>
