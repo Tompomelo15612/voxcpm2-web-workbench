@@ -17,8 +17,8 @@ conda activate voice
 pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
 pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
 
-# ===== 第3步：安装 CUDA 版 PyTorch =====
-pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu126
+# ===== 第3步：安装匹配版本的 CUDA 版 PyTorch =====
+pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu128
 
 # ===== 第4步：安装项目依赖 =====
 pip install voxcpm torchcodec modelscope librosa soundfile numpy requests tqdm flask
@@ -83,8 +83,8 @@ pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
 ## 4. 安装核心依赖
 
 ```bash
-# 1) CUDA 版 PyTorch（cu126）
-pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu126
+# 1) CUDA 版 PyTorch（已在 AutoDL cu128 环境验证）
+pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu128
 
 # 2) VoxCPM
 pip install voxcpm
@@ -270,7 +270,8 @@ sf.write("output.wav", final, model.tts_model.sample_rate)
 | 多人声串话 | 多次 `generate()` 无参考音频，每次捏不同声音 | 传同一个 `reference_wav_path` |
 | 括号描述被读出来 | 克隆模式下不支持括号描述 | 去掉括号描述，靠标点控制语气 |
 | Python 3.13 装不上 | 依赖包无 3.13 wheel | 用 Python 3.12 |
-| CUDA 不可用 | PyTorch 装的 CPU 版 | `pip install torch --index-url https://download.pytorch.org/whl/cu126` |
+| CUDA 不可用 | PyTorch 装的 CPU 版 | 安装下方经过验证的 cu128 版本组合 |
+| `torchaudio` 出现 `undefined symbol` 或缺少 `libcudart` | `torch` 与 `torchaudio` 版本不匹配 | 执行 `pip install --force-reinstall torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu128` |
 
 ---
 

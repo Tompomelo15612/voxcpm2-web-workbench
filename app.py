@@ -210,27 +210,6 @@ def generate_async():
     return jsonify({"job_id": job_id})
 
 
-@app.post("/upload_reference")
-def upload_reference():
-    upload = request.files.get("reference_upload")
-    if not upload or not upload.filename:
-        return jsonify({"error": "请先选择参考音频文件"}), 400
-
-    try:
-        reference = save_uploaded_reference(upload.filename, upload)
-    except Exception as exc:
-        return jsonify({"error": f"上传失败：{exc}"}), 400
-
-    return jsonify(
-        {
-            "key": reference.key,
-            "name": reference.name,
-            "duration": reference.duration,
-            "sample_rate": reference.sample_rate,
-        }
-    )
-
-
 @app.get("/progress/<job_id>")
 def progress(job_id: str):
     job = _get_job(job_id)

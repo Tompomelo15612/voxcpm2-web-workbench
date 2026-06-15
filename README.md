@@ -32,11 +32,13 @@ cd voxcpm2-web-workbench
 conda create -n voice python=3.12 -y
 conda activate voice
 
-pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu126
+pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu128
 pip install -r requirements.txt
 ```
 
-不同显卡环境需要选择合适的 PyTorch CUDA 版本，详见 [PyTorch 安装页面](https://pytorch.org/get-started/locally/)。
+以上版本组合已在 AutoDL CUDA 12.8 环境验证。不要单独升级 `torch` 或
+`torchaudio`，二者二进制版本不匹配会导致导入失败。其他显卡环境请参考
+[PyTorch 安装页面](https://pytorch.org/get-started/locally/)选择匹配组合。
 
 ## 下载模型
 
