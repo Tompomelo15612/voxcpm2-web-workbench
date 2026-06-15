@@ -181,6 +181,29 @@ def index():
     return render_template("index.html", **_page_context())
 
 
+@app.post("/upload_reference")
+def upload_reference():
+    upload = request.files.get("reference_upload")
+    if not upload or not upload.filename:
+        return jsonify({"error": "请先选择参考音频文件"}), 400
+
+    try:
+        reference = save_uploaded_reference(upload.filename, upload)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": f"上传失败：{exc}"}), 500
+
+    return jsonify(
+        {
+            "key": reference.key,
+            "name": reference.name,
+            "duration": reference.duration,
+            "sample_rate": reference.sample_rate,
+        }
+    )
+
+
 @app.post("/generate")
 def generate():
     error = None
