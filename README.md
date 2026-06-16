@@ -75,7 +75,7 @@ python app.py
 浏览器访问：
 
 ```text
-http://127.0.0.1:5000
+http://127.0.0.1:6006
 ```
 
 更多安装细节请查看 [SETUP.md](SETUP.md)，网页功能说明请查看 [WEB_APP.md](WEB_APP.md)。
