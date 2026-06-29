@@ -336,6 +336,53 @@ def _is_silent(wav) -> bool:
     return _audio_peak(wav) < 1e-5
 
 
+def _time_stretch(wav, speed: float):
+    import librosa
+    import numpy as np
+
+    return librosa.effects.time_stretch(y=wav.astype(np.float32), rate=speed)
+
+
+def _slow_down_with_pauses(wav, speed: float, sample_rate: int):
+    import librosa
+    import numpy as np
+
+    if speed >= 1.0:
+        return _time_stretch(wav, speed)
+
+    source = np.asarray(wav, dtype=np.float32)
+    if source.size == 0:
+        return source
+
+    target_samples = int(round(len(source) / speed))
+    remaining = target_samples - len(source)
+    if remaining <= int(sample_rate * 0.02):
+        return source
+
+    intervals = librosa.effects.split(
+        source,
+        top_db=32,
+        frame_length=2048,
+        hop_length=512,
+    )
+    if len(intervals) < 2:
+        return source
+
+    insertions = len(intervals) - 1
+    base_pause = remaining // insertions
+    extra = remaining % insertions
+    pieces = []
+    cursor = 0
+    for index, (_, end) in enumerate(intervals[:-1]):
+        pieces.append(source[cursor:end])
+        pause_samples = base_pause + (1 if index < extra else 0)
+        if pause_samples > 0:
+            pieces.append(np.zeros(pause_samples, dtype=np.float32))
+        cursor = end
+    pieces.append(source[cursor:])
+    return np.concatenate(pieces)
+
+
 def _safe_generation_text(text: str) -> str:
     _, text = _leading_instruction(text)
     text = re.sub(r"\[[^\]]{1,80}\]", "", text)
@@ -351,6 +398,20 @@ def apply_control_instruction(text: str, enabled: bool, instruction: str | None)
     if not (instruction.startswith("(") or instruction.startswith("（")):
         instruction = f"({instruction})"
     return _with_instruction(text, instruction)
+
+def apply_slow_pacing(text: str, speed: float) -> str:
+    if speed >= 1.0:
+        return text
+
+    instruction, body = _leading_instruction(text)
+    line_break = "\n\n" if speed <= 0.85 else "\n"
+    body = re.sub(r"([。！？!?；;])\s*", r"\1" + line_break, body)
+    if speed <= 0.9:
+        body = re.sub(r"([，、,])\s*", r"\1\n", body)
+    if speed <= 0.75:
+        body = re.sub(r"([：:])\s*", r"\1\n", body)
+    body = _compact_blank_lines(body)
+    return _with_instruction(body, instruction)
 
 
 def split_text_segments(text: str, max_chars: int) -> list[str]:
@@ -469,6 +530,7 @@ def synthesize(
         if mode == "ultimate" and enable_control and control_instruction:
             raise ValueError("极致克隆模式会忽略控制提示词，请关闭可控克隆提示词或改用基础克隆")
         text = apply_control_instruction(text, enable_control, control_instruction)
+        text = apply_slow_pacing(text, speed)
         segments = split_text_segments(text, max_segment_chars) if auto_split else [text]
         report(10, f"准备生成，共 {len(segments)} 段")
         model = get_model()
@@ -525,11 +587,8 @@ def synthesize(
 
         if abs(speed - 1.0) > 0.001:
             report(88, "正在调整语速")
-            import librosa
-            import numpy as np
-
             original_wav = wav
-            wav = librosa.effects.time_stretch(y=wav.astype(np.float32), rate=speed)
+            wav = _slow_down_with_pauses(wav, speed, sample_rate)
             if _is_silent(wav) and not _is_silent(original_wav):
                 report(90, "调速结果异常，已保留原速音频")
                 wav = original_wav
